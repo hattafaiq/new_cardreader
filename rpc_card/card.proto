@@ -1,0 +1,177 @@
+syntax= "proto3";
+
+package card_reader_crt;
+
+service CardReader {
+	rpc IsOpen(IsOpenRequest) returns (IsOpenResp) {}
+    rpc Open(OpenRequest) returns (OpenResp) {}
+    rpc Close(CloseRequest) returns (CloseResp) {}
+    rpc Init(InitRequest) returns (InitResponse) {} 
+    rpc PermitMagCardOnly(PermitMagCardOnlyRequest) returns (PermitMagCardOnlyResponse) {}
+    rpc ProhibitCardIn(ProhibitCardInRequest) returns (ProhibitCardInResponse) {}
+    rpc Eject(EjectRequest) returns (EjectResponse) {}
+    rpc Capture(CaptureRequest) returns (CaptureResponse) {}
+    rpc Retrieve(RetrieveRequest) returns (RetrieveResponse) {}
+    rpc CardStatus(CardStatusRequest) returns (CardStatusResponse) {}
+	rpc LEDBlinkGreen(LEDBlinkGreenRequest) returns (LEDBlinkGreenResponse) {}
+    rpc LEDBlinkOrange(LEDBlinkOrangeRequest) returns (LEDBlinkOrangeResponse) {}
+    rpc LEDBlinkRed(LEDBlinkRedRequest) returns (LEDBlinkRedResponse) {}
+    rpc LEDOFF(LEDOFFRequest) returns (LEDOFFResponse) {}
+    rpc ReadData(ReadDataRequest) returns (ReadDataResponse) {}
+
+    rpc WaitInputReadCard(WaitInputReadCardRequest) returns (WaitInputReadCardResponse) {}
+    rpc RejectCardOrMoveBin(RejectCardOrMoveBinRequest) returns (RejectCardOrMoveBinResponse) {}
+
+	rpc GetDataKartu(GetDataKartuRequest) returns (GetDataKartuResponse){}
+}
+
+message GetDataKartuResponse{
+	string cardnumber = 1;
+	string track2data = 2;
+	string modecard = 3;
+	string tag5F34 = 4 ;
+	string iccdata = 5;
+	bool status = 6; 
+}
+
+message GetDataKartuRequest{
+	int32 ammount = 1;
+	string formaticcdata = 2;
+	int32 flag = 3; // 0 activate card and ic card, 1 magnetic card, 2, no activate and ic card, 3 hanya generate ac ulang
+}
+
+
+message EjectResponse{
+	bool status = 1; 
+}
+
+message EjectRequest{
+}
+
+enum RejectCardOrMoveBinStatus{
+	UNDEFINED = 0;
+	NOT_OPEN_DEVICE = -1;
+	CARD_NOT_DETECTED = -2;
+	CARD_MOVE_TO_BIN = 1;
+	CARD_TAKEN = 2; 
+}
+
+message RejectCardOrMoveBinResponse{
+	RejectCardOrMoveBinStatus status = 1; 
+}
+
+message RejectCardOrMoveBinRequest{
+	int32 timeout = 1;
+}
+
+message WaitInputReadCardResponse{
+	int32 status = 1; //
+	string record1 = 2;
+	string record2 = 3;
+	string record3 = 4;
+}
+
+message WaitInputReadCardRequest{
+	int32 timeout = 1;
+}
+
+message ReadDataResponse{
+	string record1 = 1;
+	string record2 = 2;
+	string record3 = 3;
+}
+
+message ReadDataRequest{
+}
+
+message LEDOFFResponse{
+	bool status = 1;
+}
+
+message LEDOFFRequest{
+}
+
+message LEDBlinkRedResponse{
+	bool status = 1;
+}
+
+message LEDBlinkRedRequest{
+}
+
+message LEDBlinkOrangeResponse{
+	bool status = 1;
+}
+
+message LEDBlinkOrangeRequest{
+}
+
+message LEDBlinkGreenResponse{
+	bool status = 1;
+}
+
+message LEDBlinkGreenRequest{
+}
+
+message CardStatusResponse{
+	int32 status = 1; // 0. no card 1. card at gate 2. card di dalem reader
+}
+
+message CardStatusRequest{
+}
+
+message RetrieveResponse{
+	bool status = 1;
+}
+
+message RetrieveRequest{
+}
+
+message CaptureResponse{
+	bool status = 1;
+}
+
+message CaptureRequest{
+}
+
+message ProhibitCardInResponse{
+	bool status = 1; 
+}
+
+message ProhibitCardInRequest{
+}
+
+message PermitMagCardOnlyResponse{
+	bool status = 1;
+}
+
+message PermitMagCardOnlyRequest{	
+}
+
+message InitResponse{ 
+	bool status = 1; // init status
+}
+
+message InitRequest{
+	 bool ejectfrontorrear = 1; // true rear blkng, false ke gate mulut
+}
+
+message CloseResp{
+}
+
+message CloseRequest{
+}
+
+message OpenResp{
+	bool status = 1; //open resp
+}
+
+message OpenRequest{
+	string com = 1;	
+}
+
+message IsOpenResp{
+	bool status = 1; // isopen 
+}
+
+message IsOpenRequest{
+}

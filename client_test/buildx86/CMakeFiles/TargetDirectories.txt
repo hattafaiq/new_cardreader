@@ -1,0 +1,5 @@
+C:/MurniSN/Front_End/FE_MANDIRI_KD100/ServiceKD100/project_kisan/cdm_kd100/src/cpp/sockclient1/card_reader/creator1/client_test/buildx86/CMakeFiles/testui.dir
+C:/MurniSN/Front_End/FE_MANDIRI_KD100/ServiceKD100/project_kisan/cdm_kd100/src/cpp/sockclient1/card_reader/creator1/client_test/buildx86/CMakeFiles/edit_cache.dir
+C:/MurniSN/Front_End/FE_MANDIRI_KD100/ServiceKD100/project_kisan/cdm_kd100/src/cpp/sockclient1/card_reader/creator1/client_test/buildx86/CMakeFiles/rebuild_cache.dir
+C:/MurniSN/Front_End/FE_MANDIRI_KD100/ServiceKD100/project_kisan/cdm_kd100/src/cpp/sockclient1/card_reader/creator1/client_test/buildx86/CMakeFiles/testui_autogen_timestamp_deps.dir
+C:/MurniSN/Front_End/FE_MANDIRI_KD100/ServiceKD100/project_kisan/cdm_kd100/src/cpp/sockclient1/card_reader/creator1/client_test/buildx86/CMakeFiles/testui_autogen.dir
