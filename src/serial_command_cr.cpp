@@ -17,7 +17,12 @@
 #define FAIL_RESP 1
 #define DISCONNECT_RESP 2
 
+#define COMSelectPSELeng "00A404000E315041592E5359532E444446303133"
+
 #define COMSelectPSE "00A404000E315041592E5359532E4444463031" 
+#define COMSelectPSE90 "00A404000E315041592E5359532E444446303100" 
+
+#define COMSelectPSENir "00A404000E325041592E5359532E4444463031" 
 
 static HANDLE buf = NULL;
 
@@ -570,6 +575,11 @@ std::string generateLengEMVTLVEND(const std::string& tag, std::string valueHex) 
     // Hapus spasi jika ada input yang mengandung spasi
     valueHex.erase(std::remove(valueHex.begin(), valueHex.end(), ' '), valueHex.end());
 
+    // JIKA TAG ADALAH 5A, BATASI MAKSIMAL 8 BYTE (16 KARAKTER HEX)
+    if (tag == "5A" && valueHex.length() > 16) {
+        valueHex = valueHex.substr(0, 16);
+    }
+    
     // Hitung jumlah byte (2 karakter hex = 1 byte)
     size_t byteLength = valueHex.length() / 2;
 
@@ -1615,6 +1625,32 @@ std::string findEMVTagValue(const std::string& tlvHex, const std::string& target
 
 int CommandCardCRT::OnCPURESETButton() 
 {
+  /*
+  This command activates an IC card. The ICRW supplies power (VCC) and clock (CLK), and releases
+  reset(RST).
+  Vcc = “0”(30h)
+  The ICRW supplies +5V to the VCC and activates according to the EMV version 4.2.
+  Vcc = “3”(33h)
+  The ICRW supplies +5V to the VCC and activates according to the IS0/IEC7816-3:2006.
+  Vcc = “5”(35h)
+  The ICRW supplies +3V to the VCC and activates according to the IS0/IEC7816-3:2006.
+  After receiving the ATR, the ICRW changes the voltage of the VCC in accordance with the T=15 value of the
+  ATR.
+  Vcc = “6”(36h)
+  The ICRW supplies with +5V to the VCC and activates according to the ISO/IEC7816-3:2006.After
+  receiving the ATR, the ICRW changes the voltage to the VCC in accordance with the T=15 value of the ATR.
+  Vcc = “8”(38h)
+  The ICRW activates ICC according to ISO/IEC7816-3:2006. VCC is supplied in order of 5V, 3V, and 1.8V.
+  Vcc = “@”(40h)
+  The ICRW supplies +5V to the VCC and activates according to the MONEO card specification.
+  The Vcc parameter can be omitted, and the default value is “0”(30h).
+  Note:
+  Vcc=30H is used on EMV comply card.
+  Vcc=33H is used on old ISO/IEC7816-3 card. (Only 5V card)。
+  Vcc=35H(VCC=3V then 5V)，Vcc=36H(VCC=5V then 3V) and Vcc=38H(5V,3V then1.8V) are used
+  on ISO/IEC7816-3:2006 card.
+  Also, Answer to reset (ATR) from the IC card is received and transmitted to the HOST.
+  */
 	unsigned char CmCode;
 	unsigned char PmCode;
     int  CmDataLen;
@@ -1631,9 +1667,9 @@ int CommandCardCRT::OnCPURESETButton()
 	CmCode=0x49;
 	PmCode=0x30;
 	CmDataLen=1;
-	CmData[0]=0x30;
+	//CmData[0]=0x30;
 	// CmData[0]=0x33;
-	// CmData[0]=0x35;
+	 CmData[0]=0x38;
 	int	rc=RS232_ExeCommand(buf,CmCode,PmCode,CmDataLen,CmData,&ReType,&SEt0,&SEt1,&ReDataLen,ReData);		
 	if(rc==0)
 	{
@@ -2119,20 +2155,16 @@ int CommandCardCRT::IdentifyCard(){
   int resp = OnCPURESETButton();
   if (resp == 0)
     return SUCSESS_RESP;
-  if (resp == 2)
-    return DISCONNECT_RESP;
 
   bool loops = 1;
   int count = 0;
   while (loops)
   {
-    std::this_thread::sleep_for(std::chrono::seconds(1));
+    std::this_thread::sleep_for(std::chrono::seconds(3));
     resp = OnCPURESETButton();
     if (resp == 0)
       return SUCSESS_RESP;
-    else if (resp == 2)
-      return DISCONNECT_RESP;
-    if (count == 3)
+    if (count == 5)
     {
       return FAIL_RESP;
     }
@@ -2899,6 +2931,13 @@ bool CommandCardCRT::SelectCard(){
                   parseEMVTLV(responseBytes);
 
                 MulaiGPO(respbuf);
+                if(emv.cdol1Raw != "Tidak Ditemukan"){
+                  std::cout << "E mulai gen ac!" <<std::endl;
+                    GenerateACCommand(emv.cdol1Raw);
+                  }
+                  else{
+                    std::cout << "cdol1 kosong" <<std::endl;
+                  }
              }
 
              else if(SEt0 == 0x90){
@@ -2913,6 +2952,65 @@ bool CommandCardCRT::SelectCard(){
     }
     else if(SEt0 == 0x90){
         std::cout<<"COMSelectPSE resp 90";
+        // Potong Status Word '9000' di akhir string jika sukses
+    if (respbuf.length() >= 4 && respbuf.substr(respbuf.length() - 4) == "9000") {
+        respbuf = respbuf.substr(0, respbuf.length() - 4);
+        std::cout << "Status Word '9000' (OK) berhasil dilepas.\n\n";
+        respbuf = CariTag88(respbuf);
+
+         std::vector<unsigned char> tlvData = hexToBytes(respbuf);
+        std::vector<unsigned char> aidValue;
+
+        // Cari Tag 4F (AID) secara otomatis
+        if (findTagValue(tlvData, 0, tlvData.size(), 0x4F, aidValue)) {
+            std::string aidHex = "A0000006021010";//bytesToHex(aidValue);
+            std::cout << "[SUKSES] AID Ditemukan: " << aidHex << std::endl;
+
+            // --- GENERATE APDU SELECT AID ---
+            unsigned char aidLen = aidValue.size();
+            std::stringstream ss;
+            ss << "00A40400" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)aidLen << aidHex;
+            
+            std::string nextApduCmd = ss.str();
+            std::cout << "Kirim APDU Berikutnya (SELECT AID): " << nextApduCmd << std::endl;
+          //  std::string nextApduCmd_new = selectHighestPriorityAid(data_buffer);
+            respbuf = CommandData(nextApduCmd,&SEt0,&SEt1);
+             if(SEt0 == 0x61){
+                std::cout << "data respon panjang lagi!";
+
+                BYTE extraBytesLength = SEt1;
+                std::vector<BYTE> currentCmd = { 0x00, 0xC0, 0x00, 0x00, extraBytesLength };
+                std::string str = ConvertBytetoString(currentCmd);
+                respbuf = CommandData(str,&SEt0,&SEt1);
+                 if (respbuf.length() >= 4 && respbuf.substr(respbuf.length() - 4) == "9000") {
+                      respbuf = respbuf.substr(0, respbuf.length() - 4);
+                  }
+
+                  std::vector<unsigned char> responseBytes = hexToBytes(respbuf);
+
+                  // Tembak ke parser rekursif untuk diekstrak secara otomatis
+                  parseEMVTLV(responseBytes);
+
+                MulaiGPO(respbuf);
+                if(emv.cdol1Raw != "Tidak Ditemukan"){
+                  std::cout << "F mulai gen ac!" <<std::endl;
+                    GenerateACCommand(emv.cdol1Raw);
+                  }
+                  else{
+                    std::cout << "cdol1 kosong" <<std::endl;
+                  }
+             }
+
+             else if(SEt0 == 0x90){
+                std::cout<<" CariTag88 resp 90";
+            }
+
+
+            // Tembak nextApduCmd ini menggunakan fungsi CommandData(nextApduCmd, &sw1, &sw2) Anda!
+        } else {
+            std::cerr << "[ERROR] Tag 4F (AID) tidak ditemukan dalam record." << std::endl;
+        }
+    }
     }
   }
 
@@ -3154,6 +3252,7 @@ int CommandCardCRT::GetDataKartu(int ammount_data, int flag, DataKartuResponse *
   ClearData();
   emv.ammountDeposit = intToDecimal12Char(ammount_data);
   std::cout << "==========set deposit>>"<< emv.ammountDeposit << std::endl;
+   flag=0;
   int resp = 0;
   if(flag == 0){
       resp = IdentifyCard();
@@ -3179,123 +3278,290 @@ int CommandCardCRT::GetDataKartu(int ammount_data, int flag, DataKartuResponse *
     std::printf("Res SW CommandData: %02X %02X\n", SEt0, SEt1);
 
     if(SEt0 == 0x61){
-       std::cout << "data respon panjang lagi!";
+        std::cout << "data respon panjang lagi!";
 
-       BYTE extraBytesLength = SEt1;
-       std::vector<BYTE> currentCmd = { 0x00, 0xC0, 0x00, 0x00, extraBytesLength };
-       std::string str = ConvertBytetoString(currentCmd);
-       // std::stringstream ss
+        BYTE extraBytesLength = SEt1;
+        std::vector<BYTE> currentCmd = { 0x00, 0xC0, 0x00, 0x00, extraBytesLength };
+        std::string str = ConvertBytetoString(currentCmd);
+        // std::stringstream ss
 
-        // std::cout << str << std::endl; // Output: 00C00000
-       respbuf = CommandData(str,&SEt0,&SEt1);
-      //  std::string datanya_apa = selectHighestPriorityAid(respbuf);
-      //  bool pakai_def = true;
-      //  if(datanya_apa.size() > 10 && datanya_apa != ""){
-      //     pakai_def=false;
-      //     std::cout << "pakai_def: " << pakai_def <<"|size: " << datanya_apa.size()<< std::endl;
-      //  }
-       //tambahkan logika sukses dan fail
+          // std::cout << str << std::endl; // Output: 00C00000
+        respbuf = CommandData(str,&SEt0,&SEt1);
+        //  std::string datanya_apa = selectHighestPriorityAid(respbuf);
+        //  bool pakai_def = true;
+        //  if(datanya_apa.size() > 10 && datanya_apa != ""){
+        //     pakai_def=false;
+        //     std::cout << "pakai_def: " << pakai_def <<"|size: " << datanya_apa.size()<< std::endl;
+        //  }
+        //tambahkan logika sukses dan fail
 
-       respbuf = CariTag88(respbuf);//select AID 
+        respbuf = CariTag88(respbuf);//select AID 
 
-       std::vector<unsigned char> tlvData = hexToBytes(respbuf);
-       std::vector<unsigned char> aidValue;
+        std::vector<unsigned char> tlvData = hexToBytes(respbuf);
+        std::vector<unsigned char> aidValue;
 
-        // Cari Tag 4F (AID) secara otomatis
-        if (findTagValue(tlvData, 0, tlvData.size(), 0x4F, aidValue)) {
-          //  if(!pakai_def){
-          //       respbuf = CommandData(datanya_apa,&SEt0,&SEt1);
-          //       // emv.DedicatedFile = "A0000006021010";
-          //       std::cout << "masuk pakai_def: " << pakai_def << std::endl;
-          //  }else{
-                //std::cout << "pakai_def: " << pakai_def << std::endl;
-                std::string aidHex = bytesToHex(aidValue);
-               // if(emv.priority == "02"){
-                  aidHex = "A0000006021010";
-                  emv.DedicatedFile = "A0000006021010";
-              //  }
-                std::cout << "[SUKSES] AID Ditemukan: " << aidHex << std::endl;
+          // Cari Tag 4F (AID) secara otomatis
+          if (findTagValue(tlvData, 0, tlvData.size(), 0x4F, aidValue)) {
+            //  if(!pakai_def){
+            //       respbuf = CommandData(datanya_apa,&SEt0,&SEt1);
+            //       // emv.DedicatedFile = "A0000006021010";
+            //       std::cout << "masuk pakai_def: " << pakai_def << std::endl;
+            //  }else{
+                  //std::cout << "pakai_def: " << pakai_def << std::endl;
+                  std::string aidHex = bytesToHex(aidValue);
+                // if(emv.priority == "02"){
+                    aidHex = "A0000006021010";
+                    emv.DedicatedFile = "A0000006021010";
+                //  }
+                  std::cout << "[SUKSES] AID Ditemukan: " << aidHex << std::endl;
 
-                // --- GENERATE APDU SELECT AID ---
-                unsigned char aidLen = aidValue.size();
-                std::stringstream ss;
-                ss << "00A40400" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)aidLen << aidHex;
-                
-                std::string nextApduCmd = ss.str();
-                std::cout << "Kirim APDU Berikutnya (SELECT AID): " << nextApduCmd << std::endl;
-                respbuf = CommandData(nextApduCmd,&SEt0,&SEt1);
-          // }
-             if(SEt0 == 0x61){
-                std::cout << "data respon panjang lagi!";
+                  // --- GENERATE APDU SELECT AID ---
+                  unsigned char aidLen = aidValue.size();
+                  std::stringstream ss;
+                  ss << "00A40400" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)aidLen << aidHex;
+                  
+                  std::string nextApduCmd = ss.str();
+                  std::cout << "Kirim APDU Berikutnya (SELECT AID): " << nextApduCmd << std::endl;
+                  respbuf = CommandData(nextApduCmd,&SEt0,&SEt1);
+            // }
+              if(SEt0 == 0x61){
+                  std::cout << "data respon panjang lagi!";
 
-                BYTE extraBytesLength = SEt1;
-                std::vector<BYTE> currentCmd = { 0x00, 0xC0, 0x00, 0x00, extraBytesLength };
-                std::string str = ConvertBytetoString(currentCmd);
-                respbuf = CommandData(str,&SEt0,&SEt1);
-                 if (respbuf.length() >= 4 && respbuf.substr(respbuf.length() - 4) == "9000") {
-                      respbuf = respbuf.substr(0, respbuf.length() - 4);
-                  }
+                  BYTE extraBytesLength = SEt1;
+                  std::vector<BYTE> currentCmd = { 0x00, 0xC0, 0x00, 0x00, extraBytesLength };
+                  std::string str = ConvertBytetoString(currentCmd);
+                  respbuf = CommandData(str,&SEt0,&SEt1);
+                  if (respbuf.length() >= 4 && respbuf.substr(respbuf.length() - 4) == "9000") {
+                        respbuf = respbuf.substr(0, respbuf.length() - 4);
+                    }
 
-                  std::vector<unsigned char> responseBytes = hexToBytes(respbuf);
+                    std::vector<unsigned char> responseBytes = hexToBytes(respbuf);
 
-                  // Tembak ke parser rekursif untuk diekstrak secara otomatis
-                  parseEMVTLV(responseBytes);
+                    // Tembak ke parser rekursif untuk diekstrak secara otomatis
+                    parseEMVTLV(responseBytes);
+
+                    MulaiGPO(respbuf);
+
+                    if(emv.cdol1Raw != "Tidak Ditemukan"){
+                    std::cout << "D mulai gen ac!" <<std::endl;
+                      GenerateACCommand(emv.cdol1Raw);
+                    }
+                    else{
+                      std::cout << "cdol1 kosong" <<std::endl;
+                    }
+              }
+
+              else if(SEt0 == 0x90){
+                  std::cout<<" CariTag88 resp 90 -->>>> harusnya ini gak ada soalnya commandnya di belakang nggak ada tambahan 00";
+              }
+
+
+              // Tembak nextApduCmd ini menggunakan fungsi CommandData(nextApduCmd, &sw1, &sw2) Anda!
+          } else {
+              std::cerr << "[ERROR] Tag 4F (AID) tidak ditemukan dalam record." << std::endl;
+              return FAIL_RESP;
+          }
+      }
+      else if(SEt0 == 0x90){
+          std::cout<<"COMSelectPSE resp 90";//harusnya nggak masuk sini soalnya command nya untuk 0x61 ya
+          if (respbuf.length() >= 4 && respbuf.substr(respbuf.length() - 4) == "9000") {
+          respbuf = respbuf.substr(0, respbuf.length() - 4);
+          std::cout << "Status Word '9000' (OK) berhasil dilepas.\n\n";
+          respbuf = CariTag88(respbuf);
+
+          std::vector<unsigned char> tlvData = hexToBytes(respbuf);
+          std::vector<unsigned char> aidValue;
+
+          // Cari Tag 4F (AID) secara otomatis
+          if (findTagValue(tlvData, 0, tlvData.size(), 0x4F, aidValue)) {
+              std::string aidHex = "A0000006021010";//bytesToHex(aidValue);
+              std::cout << "[SUKSES] AID Ditemukan: " << aidHex << std::endl;
+
+              // --- GENERATE APDU SELECT AID ---
+              unsigned char aidLen = aidValue.size();
+              std::stringstream ss;
+              ss << "00A40400" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)aidLen << aidHex;
+              
+              std::string nextApduCmd = ss.str();
+              std::cout << "Kirim APDU Berikutnya (SELECT AID): " << nextApduCmd << std::endl;
+            //  std::string nextApduCmd_new = selectHighestPriorityAid(data_buffer);
+              respbuf = CommandData(nextApduCmd,&SEt0,&SEt1);
+              if(SEt0 == 0x61){
+                  std::cout << "data respon panjang lagi!";
+
+                  BYTE extraBytesLength = SEt1;
+                  std::vector<BYTE> currentCmd = { 0x00, 0xC0, 0x00, 0x00, extraBytesLength };
+                  std::string str = ConvertBytetoString(currentCmd);
+                  respbuf = CommandData(str,&SEt0,&SEt1);
+                  if (respbuf.length() >= 4 && respbuf.substr(respbuf.length() - 4) == "9000") {
+                        respbuf = respbuf.substr(0, respbuf.length() - 4);
+                    }
+
+                    std::vector<unsigned char> responseBytes = hexToBytes(respbuf);
+
+                    // Tembak ke parser rekursif untuk diekstrak secara otomatis
+                    parseEMVTLV(responseBytes);
 
                   MulaiGPO(respbuf);
-
                   if(emv.cdol1Raw != "Tidak Ditemukan"){
-                  std::cout << "mulai gen ac!" <<std::endl;
-                    GenerateACCommand(emv.cdol1Raw);
-                  }
-                  else{
-                    std::cout << "cdol1 kosong" <<std::endl;
-                  }
-             }
+                    std::cout << "A mulai gen ac!" <<std::endl;
+                      GenerateACCommand(emv.cdol1Raw);
+                    }
+                    else{
+                      std::cout << "cdol1 kosong" <<std::endl;
+                    }
+              }
 
-             else if(SEt0 == 0x90){
-                std::cout<<" CariTag88 resp 90 -->>>> harusnya ini gak ada soalnya commandnya di belakang nggak ada tambahan 00";
-            }
+              else if(SEt0 == 0x90){
+                  std::cout<<" CariTag88 resp 90";
+                  if (respbuf.length() >= 4 && respbuf.substr(respbuf.length() - 4) == "9000") {
+                        respbuf = respbuf.substr(0, respbuf.length() - 4);
+                    }
+
+                    std::vector<unsigned char> responseBytes = hexToBytes(respbuf);
+
+                    // Tembak ke parser rekursif untuk diekstrak secara otomatis
+                    parseEMVTLV(responseBytes);
+
+                  MulaiGPO(respbuf);
+                  if(emv.cdol1Raw != "Tidak Ditemukan"){
+                    std::cout << "B mulai gen ac!" <<std::endl;
+                      GenerateACCommand(emv.cdol1Raw);
+                    }
+                    else{
+                      std::cout << "cdol1 kosong" <<std::endl;
+                    }
+              }
 
 
-            // Tembak nextApduCmd ini menggunakan fungsi CommandData(nextApduCmd, &sw1, &sw2) Anda!
-        } else {
-            std::cerr << "[ERROR] Tag 4F (AID) tidak ditemukan dalam record." << std::endl;
-            return FAIL_RESP;
+              // Tembak nextApduCmd ini menggunakan fungsi CommandData(nextApduCmd, &sw1, &sw2) Anda!
+          } else {
+              std::cerr << "[ERROR] Tag 4F (AID) tidak ditemukan dalam record." << std::endl;
+          }
         }
-    }
-    else if(SEt0 == 0x90){
-        std::cout<<"COMSelectPSE resp 90";//harusnya nggak masuk sini soalnya command nya untuk 0x61 ya
-    }
-      // tambahkan respon gagal
-    datass->cardnumber = emv.pan;
-    datass->track2data = emv.track2Data;
-    datass->modecard = "051";
-    datass->tag5F34 = emv.panSequenceNumber;
-    datass->iccdata = emv.IccFull;
-    datass->status = SUCSESS_RESP;
+      }
+      else{
+      //  respbuf = CommandData(COMSelectPSE90,&SEt0,&SEt1);
+        std::printf("NFC : %02X %02X\n", SEt0, SEt1);
 
-      std::cout << "================final data sukses ICC=====================" << std::endl;
-          std::cout << "cardnumber  : " << datass->cardnumber << std::endl;
-          std::cout << "track2data  : " << datass->track2data << std::endl;
-          std::cout << "modecard    : " << datass->modecard << std::endl;
-          std::cout << "tag5F34     : " << datass->tag5F34 << std::endl;
-          std::cout << "iccdata     : " << datass->iccdata << std::endl;
-          std::cout << "status      : " << datass->status << std::endl;
-    
-    if(SEt0 == 0x6A && SEt1 == 0x82){
-      std::cout << "================final data cek magnitude=====================" << std::endl;
-      CardData datsa;
-    datsa = CheckMAgData();
-      datass->cardnumber = datsa.track2;//emv.pan;
-    datass->track2data = datsa.track2;//emv.track2Data;
-    datass->modecard = "021";
-    datass->tag5F34 = "";
-    datass->iccdata = "";
-    datass->status = SUCSESS_RESP;
+          std::vector<unsigned char> tlvData = hexToBytes(respbuf);
+          std::vector<unsigned char> aidValue;
 
-    }
+              std::string aidHex = "A0000006021010";//bytesToHex(aidValue);
+              std::cout << "[SUKSES] AID Ditemukan: " << aidHex << std::endl;
 
-    return SUCSESS_RESP;
+              // --- GENERATE APDU SELECT AID ---
+              unsigned char aidLen = aidValue.size();
+              std::stringstream ss;
+              ss << "00A40400" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)aidLen << aidHex;
+              
+              std::string nextApduCmd = ss.str();
+              std::cout << "Kirim APDU Berikutnya (SELECT AID): " << nextApduCmd << std::endl;
+            //  std::string nextApduCmd_new = selectHighestPriorityAid(data_buffer);
+              respbuf = CommandData(nextApduCmd,&SEt0,&SEt1);
+              if(SEt0 == 0x61){
+                  std::cout << "data respon panjang lagi!";
+
+                  BYTE extraBytesLength = SEt1;
+                  std::vector<BYTE> currentCmd = { 0x00, 0xC0, 0x00, 0x00, extraBytesLength };
+                  std::string str = ConvertBytetoString(currentCmd);
+                  respbuf = CommandData(str,&SEt0,&SEt1);
+                  if (respbuf.length() >= 4 && respbuf.substr(respbuf.length() - 4) == "9000") {
+                        respbuf = respbuf.substr(0, respbuf.length() - 4);
+                    }
+
+                    std::vector<unsigned char> responseBytes = hexToBytes(respbuf);
+
+                    // Tembak ke parser rekursif untuk diekstrak secara otomatis
+                    parseEMVTLV(responseBytes);
+
+                  MulaiGPO(respbuf);
+                  if(emv.cdol1Raw != "Tidak Ditemukan"){
+                    std::cout << "A mulai gen ac!" <<std::endl;
+                      GenerateACCommand(emv.cdol1Raw);
+                    }
+                    else{
+                      std::cout << "cdol1 kosong" <<std::endl;
+                    }
+              }
+
+              else if(SEt0 == 0x90){
+                  std::cout<<" CariTag88 resp 90";
+                  if (respbuf.length() >= 4 && respbuf.substr(respbuf.length() - 4) == "9000") {
+                        respbuf = respbuf.substr(0, respbuf.length() - 4);
+                    }
+
+                    std::vector<unsigned char> responseBytes = hexToBytes(respbuf);
+
+                    // Tembak ke parser rekursif untuk diekstrak secara otomatis
+                    parseEMVTLV(responseBytes);
+
+                  MulaiGPO(respbuf);
+                  if(emv.cdol1Raw != "Tidak Ditemukan"){
+                    std::cout << "B mulai gen ac!" <<std::endl;
+                      GenerateACCommand(emv.cdol1Raw);
+                    }
+                    else{
+                      std::cout << "cdol1 kosong" <<std::endl;
+                    }
+              }
+              else{
+                std::cout << "gagal ICC" << std::endl;
+              CardData datsa;
+              datsa = CheckMAgData();
+              datass->cardnumber = datsa.track2;//emv.pan;
+              datass->track2data = datsa.track2;//emv.track2Data;
+              datass->modecard = "021";
+              datass->tag5F34 = "";
+              datass->iccdata = "";
+              datass->status = FAIL_RESP;
+
+            std::cout << "================final data sukses data magnitude=====================" << std::endl;
+            std::cout << "cardnumber  : " << datass->cardnumber << std::endl;
+            std::cout << "track2data  : " << datass->track2data << std::endl;
+            std::cout << "modecard    : " << datass->modecard << std::endl;
+            std::cout << "tag5F34     : " << datass->tag5F34 << std::endl;
+            std::cout << "iccdata     : " << datass->iccdata << std::endl;
+            std::cout << "status      : " << datass->status << std::endl;
+
+            return SUCSESS_RESP;
+              }
+
+
+              // Tembak nextApduCmd ini menggunakan fungsi CommandData(nextApduCmd, &sw1, &sw2) Anda!
+          
+        }
+      
+        // tambahkan respon gagal
+      datass->cardnumber = emv.pan;
+      datass->track2data = emv.track2Data;
+      datass->modecard = "051";
+      datass->tag5F34 = emv.panSequenceNumber;
+      datass->iccdata = emv.IccFull;
+      datass->status = SUCSESS_RESP;
+
+        std::cout << "================final data sukses ICC=====================" << std::endl;
+            std::cout << "cardnumber  : " << datass->cardnumber << std::endl;
+            std::cout << "track2data  : " << datass->track2data << std::endl;
+            std::cout << "modecard    : " << datass->modecard << std::endl;
+            std::cout << "tag5F34     : " << datass->tag5F34 << std::endl;
+            std::cout << "iccdata     : " << datass->iccdata << std::endl;
+            std::cout << "status      : " << datass->status << std::endl;
+      
+      if(SEt0 == 0x6A && SEt1 == 0x82){
+        std::cout << "================final data cek magnitude=====================" << std::endl;
+        CardData datsa;
+      datsa = CheckMAgData();
+        datass->cardnumber = datsa.track2;//emv.pan;
+      datass->track2data = datsa.track2;//emv.track2Data;
+      datass->modecard = "021";
+      datass->tag5F34 = "";
+      datass->iccdata = "";
+      datass->status = SUCSESS_RESP;
+
+      }
+
+      return SUCSESS_RESP;
   }
   else if(resp == FAIL_RESP){
     CardData datsa;
@@ -3319,7 +3585,7 @@ int CommandCardCRT::GetDataKartu(int ammount_data, int flag, DataKartuResponse *
   }
   else if(resp == 3){
     if(emv.cdol1Raw != "Tidak Ditemukan"){
-      std::cout << "mulai gen ac!" <<std::endl;
+      std::cout << "C mulai gen ac!" <<std::endl;
         GenerateACCommand(emv.cdol1Raw);
       }
       else{

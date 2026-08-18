@@ -220,7 +220,7 @@ int main(int a) {
       crt.SelectCard();
     }
     case 19: {
-        int mydat;
+        int mydat=0;
         std::cout << "masukkan data: ";
         std::cin >> mydat; // Reads the input and stores it in myNumber
         
